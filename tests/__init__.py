@@ -1,0 +1,1 @@
+The contents of the file my-fastapi-project/tests/__init__.py should be empty.
