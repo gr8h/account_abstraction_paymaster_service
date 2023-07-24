@@ -26,7 +26,7 @@ def pm_sponsorUserOperation(request, entryPoint, pmData) -> Result:
     w3 = get_ethereum_client()
 
     # Prepare the data
-    valid_until = w3.eth.get_block("latest").timestamp + 180  # Valid Until
+    valid_until = w3.eth.get_block("latest").timestamp + 600  # Valid Until
     valid_after = w3.eth.get_block("latest").timestamp  # Valid After
 
     paymaster_data = [
@@ -59,10 +59,10 @@ def pm_sponsorUserOperation(request, entryPoint, pmData) -> Result:
     }
 
     # Get the hash
-    returned_hash = paymaster.functions.getHash(
+    returned_hash_raw = paymaster.functions.getHash(
         user_op, valid_until, valid_after
     ).call()
-    returned_hash = defunct_hash_message(returned_hash)
+    returned_hash = defunct_hash_message(returned_hash_raw)
     paymaster_signer = w3.eth.account.from_key(os.getenv("PRIVATE_KEY"))
     sig = paymaster_signer.signHash(returned_hash)
     paymaster_data[-1] = HexBytes(sig.signature.hex())
@@ -78,24 +78,34 @@ def pm_sponsorUserOperation(request, entryPoint, pmData) -> Result:
 
     # Construct validatePaymasterUserOp transaction to estimate gas
     user_op["paymasterAndData"] = paymaster_and_data
-    transaction = {
-        "from": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
-        "to": paymaster.address,
-        "data": paymaster.encodeABI(
-            fn_name="validatePaymasterUserOp",
-            args=[user_op, returned_hash, w3.to_wei(1, "ether")],
-        ),
-    }
-    gas_estimate = w3.eth.estimate_gas(transaction)
 
-    result = {
-        "paymasterAndData": paymaster_and_data,
-        "preVerificationGas": gas_estimate,
-        "verificationGasLimit": gas_estimate,
-        "callGasLimit": int(
-            (user_op["preVerificationGas"] / user_op["callGasLimit"]) * gas_estimate
-        ),
-    }
+    try:
+        transaction = {
+            "from": os.getenv("SPONSOR_ADDRESS"),
+            "to": paymaster.address,
+            "data": paymaster.encodeABI(
+                fn_name="validatePaymasterUserOp",
+                args=[user_op, returned_hash, w3.to_wei(10, "ether")],
+            ),
+        }
+        gas_estimate = w3.eth.estimate_gas(transaction)
+
+        result = {
+            "paymasterAndData": paymaster_and_data,
+            "preVerificationGas": gas_estimate,
+            "verificationGasLimit": gas_estimate,
+            "callGasLimit": int(
+                (user_op["preVerificationGas"] / user_op["callGasLimit"]) * gas_estimate
+            ),
+        }
+    except Exception as ex:
+        print("An error occurred: ", ex)
+        result = {
+            "paymasterAndData": paymaster_and_data,
+            "preVerificationGas": user_op["preVerificationGas"],
+            "verificationGasLimit": user_op["verificationGasLimit"],
+            "callGasLimit": user_op["callGasLimit"],
+        }
 
     return Success(result)
 
